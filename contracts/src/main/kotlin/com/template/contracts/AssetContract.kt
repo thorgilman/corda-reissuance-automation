@@ -7,10 +7,10 @@ import net.corda.core.transactions.LedgerTransaction
 // ************
 // * Contract *
 // ************
-class DataContract : Contract {
+class AssetContract : Contract {
     companion object {
         // Used to identify our contract when building a transaction.
-        const val ID = "com.template.contracts.DataContract"
+        const val ID = "com.template.contracts.AssetContract"
     }
 
     // A transaction is valid if the verify() function of the contract of all the transaction's input and output states
@@ -22,5 +22,7 @@ class DataContract : Contract {
     // Used to indicate the transaction's intent.
     interface Commands : CommandData {
         class Create : Commands
+        class Transfer : Commands
+        class Exit : Commands
     }
 }

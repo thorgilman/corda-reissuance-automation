@@ -1,57 +1,104 @@
 package com.template
 
-import com.template.flows.Initiator
-import com.template.flows.Responder
-import com.template.states.DataState
+import com.r3.corda.lib.reissuance.flows.ReissueStates
+import com.r3.corda.lib.reissuance.flows.ReissueStatesResponder
+import com.r3.corda.lib.reissuance.flows.RequestReissuanceAndShareRequiredTransactions
+import com.r3.corda.lib.reissuance.flows.UnlockReissuedStates
+import com.r3.corda.lib.reissuance.states.ReissuanceLock
+import com.r3.corda.lib.reissuance.states.ReissuanceRequest
+import com.template.contracts.AssetContract
+import com.template.flows.ExitAssetFlowInitiator
+import com.template.flows.IssueAssetFlowInitiator
+import com.template.flows.TransferAssetFlowInitiator
+import com.template.states.AssetState
+import net.corda.core.contracts.CommandData
 import net.corda.core.contracts.ContractState
+import net.corda.core.flows.FlowLogic
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.node.services.queryBy
+import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.getOrThrow
-import net.corda.testing.core.internal.ContractJarTestUtils.makeTestJar
-import net.corda.testing.node.MockNetwork
-import net.corda.testing.node.MockNetworkNotarySpec
-import net.corda.testing.node.MockNodeParameters
-import net.corda.testing.node.StartedMockNode
+import net.corda.testing.node.*
+import net.corda.testing.node.internal.cordappsForPackages
+import net.corda.testing.node.internal.findCordapp
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import kotlin.test.assertEquals
 
 
 class FlowTests {
 
     lateinit var mockNetwork: MockNetwork
+    lateinit var issuer: StartedMockNode
     lateinit var a: StartedMockNode
     lateinit var b: StartedMockNode
 
     @Before
     fun setup() {
-        mockNetwork = MockNetwork(
-                listOf("com.template"),
-                notarySpecs = listOf(MockNetworkNotarySpec(CordaX500Name("Notary","London","GB")))
-        )
+        mockNetwork = MockNetwork(MockNetworkParameters(cordappsForAllNodes = listOf(
+                TestCordapp.findCordapp("com.template.contracts"),
+                TestCordapp.findCordapp("com.template.flows"),
+                TestCordapp.findCordapp("com.r3.corda.lib.reissuance.flows"),
+                TestCordapp.findCordapp("com.r3.corda.lib.reissuance.contracts")
+        )))
+        issuer = mockNetwork.createNode(MockNodeParameters())
         a = mockNetwork.createNode(MockNodeParameters())
         b = mockNetwork.createNode(MockNodeParameters())
-        val startedNodes = arrayListOf(a, b)
-        // For real nodes this happens automatically, but we have to manually register the flow for tests
-        startedNodes.forEach { it.registerInitiatedFlow(Responder::class.java) }
         mockNetwork.runNetwork()
     }
 
     @After
     fun tearDown() {
-
+        mockNetwork.stopNodes()
     }
 
     @Test
-    fun `test`() {
-        val future = a.startFlow(Initiator("Data", b.identity()))
-        mockNetwork.runNetwork()
+    fun `happy path`() {
 
-        val tx = future.getOrThrow()
+        // The issuer issues the AssetState to a
+        val issueTx = issuer.runFlow(IssueAssetFlowInitiator("Gold", a.identity()))
+        val assetId = issueTx.tx.outRefsOfType<AssetState>()[0].state.data.linearId
 
-        assert(a.getStates<DataState>().size == 1)
-        assert(b.getStates<DataState>().size == 1)
+        // a transfers the asset to b and then b transfers the asset back to a
+        val transfer1Tx = a.runFlow(TransferAssetFlowInitiator(assetId, b.identity()))
+        val transfer2Tx = b.runFlow(TransferAssetFlowInitiator(assetId, a.identity()))
+
+        val originalAssetState = transfer2Tx.tx.outRefsOfType<AssetState>()[0].state.data
+        val assetStateId = originalAssetState.linearId
+
+        val stateRefToReissue = transfer2Tx.coreTransaction.outRefsOfType<AssetState>()[0].ref
+        val assetIssuanceCommand = AssetContract.Commands.Create()
+
+        /** Step #1: Request Reissuance */
+        // The requester (a) sends a reissuance request to the issuer
+        val requestReissuanceHash = a.runFlow(RequestReissuanceAndShareRequiredTransactions<AssetState>(issuer.identity(), listOf(stateRefToReissue), assetIssuanceCommand))
+        val requestReissuanceTx = a.services.validatedTransactions.getTransaction(requestReissuanceHash)!!
+
+        /** Step #2: Accepting Reissuance Request */
+        // The issuer accepts the reissuance request
+        // Two encumbered states are created, a reissued AssetState & an active ReIssuanceLock
+        val reissueanceRequestRef = requestReissuanceTx.tx.outRefsOfType<ReissuanceRequest>()[0]
+        val reissueanceTxHash = issuer.runFlow(ReissueStates<AssetState>(reissueanceRequestRef))
+        val reissuanceTx = issuer.services.validatedTransactions.getTransaction(reissueanceTxHash)!!
+        val newAssetStateAndRef = reissuanceTx.tx.outRefsOfType<AssetState>()[0]
+        val reissuanceLockStateAndRef = reissuanceTx.tx.outRefsOfType<ReissuanceLock<AssetState>>()[0]
+
+        /** Step #3: Exiting the Original State */
+        // The requester (a) exits the original state
+        val exitTx = a.runFlow(ExitAssetFlowInitiator(assetStateId))
+        val exitTxHash = exitTx.tx.id
+
+        /** Step #4: Unlock the Reissued State */
+        // The requester (a) unlocks the reissued states
+        // Both states now become unemcumbered and the ReIssuanceLock is set to inactive
+        // The original state's exit transaction is added as an attachment to the unlock transaction
+        val unlockTxHash = a.runFlow(UnlockReissuedStates(listOf(newAssetStateAndRef), reissuanceLockStateAndRef, listOf(exitTxHash), AssetContract.Commands.Transfer())) // TODO: Transfer
+        val unlockTx = a.services.validatedTransactions.getTransaction(unlockTxHash)!!
+        val reissuedAssetState = unlockTx.tx.outRefsOfType<AssetState>()[0].state.data
+
+        assertEquals(originalAssetState, reissuedAssetState)
     }
 
 
@@ -61,6 +108,12 @@ class FlowTests {
 
     inline fun <reified T: ContractState> StartedMockNode.getStates(): List<ContractState> {
         return services.vaultService.queryBy<T>().states.map{it.state.data}
+    }
+
+    inline fun <reified T> StartedMockNode.runFlow(flowLogic: FlowLogic<T>): T {
+        val future = this.startFlow(flowLogic)
+        mockNetwork.runNetwork()
+        return future.getOrThrow()
     }
 
 
