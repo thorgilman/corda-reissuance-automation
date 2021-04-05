@@ -10,10 +10,9 @@ import net.corda.core.flows.InitiatedBy
 import net.corda.core.transactions.SignedTransaction
 
 @InitiatedBy(DeleteReissuedStatesAndLock::class)
-class DeleteReissuedStatesAndLock(
+class DeleteReissuedAssetStatesAndLockResponder(
         otherSession: FlowSession
 ) : DeleteReissuedStatesAndLockResponder(otherSession) {
-
     override fun checkConstraints(stx: SignedTransaction) {
         requireThat {
             otherInputs.forEach {

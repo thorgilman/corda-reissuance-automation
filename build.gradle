@@ -4,6 +4,11 @@ buildscript { //properties that you need to build the project
     file("$projectDir/./constants.properties").withInputStream { constants.load(it) }
 
     ext {
+        reissuance_release_group = constants.getProperty("reissuanceReleaseGroup")
+        reissuance_release_version = constants.getProperty("reissuanceReleaseVersion")
+        tokens_release_group = constants.getProperty("tokensReleaseGroup")
+        tokens_release_version = constants.getProperty("tokensReleaseVersion")
+        
         corda_release_group = constants.getProperty("cordaReleaseGroup")
         corda_core_release_group =  constants.getProperty("cordaCoreReleaseGroup")
         corda_release_version = constants.getProperty("cordaVersion")
@@ -18,11 +23,6 @@ buildscript { //properties that you need to build the project
         //springboot
         spring_boot_version = '2.0.2.RELEASE'
         spring_boot_gradle_plugin_version = '2.0.2.RELEASE'
-
-        reissuance_release_group = constants.getProperty("reissuanceReleaseGroup")
-        reissuance_release_version = constants.getProperty("reissuanceReleaseVersion")
-        tokens_release_group = constants.getProperty("tokensReleaseGroup")
-        tokens_release_version = constants.getProperty("tokensReleaseVersion")
     }
 
     repositories {
@@ -102,7 +102,6 @@ dependencies {
     cordapp "$reissuance_release_group:reissuance-cordapp-contracts:$reissuance_release_version"
     cordapp "$reissuance_release_group:reissuance-cordapp-workflows:$reissuance_release_version"
     cordapp "$tokens_release_group:tokens-workflows:$tokens_release_version"
-
 }
 
 //Task to build the jar for ganache.

@@ -13,13 +13,11 @@ import net.corda.core.transactions.SignedTransaction
 class ReissueAssetStateResponder(
         otherSession: FlowSession
 ) : ReissueStatesResponder(otherSession) {
-
     override fun checkConstraints(stx: SignedTransaction) {
         requireThat {
             otherOutputs.forEach {
                 val state = it.data as? AssetState
                 "Output $it is of type AssetState" using (state != null)
-                // TODO: What else?
             }
         }
     }

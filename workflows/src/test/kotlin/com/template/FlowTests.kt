@@ -1,9 +1,6 @@
 package com.template
 
-import com.r3.corda.lib.reissuance.flows.ReissueStates
-import com.r3.corda.lib.reissuance.flows.ReissueStatesResponder
-import com.r3.corda.lib.reissuance.flows.RequestReissuanceAndShareRequiredTransactions
-import com.r3.corda.lib.reissuance.flows.UnlockReissuedStates
+import com.r3.corda.lib.reissuance.flows.*
 import com.r3.corda.lib.reissuance.states.ReissuanceLock
 import com.r3.corda.lib.reissuance.states.ReissuanceRequest
 import com.template.contracts.AssetContract
@@ -13,6 +10,7 @@ import com.template.flows.TransferAssetFlowInitiator
 import com.template.states.AssetState
 import net.corda.core.contracts.CommandData
 import net.corda.core.contracts.ContractState
+import net.corda.core.contracts.TransactionVerificationException
 import net.corda.core.flows.FlowLogic
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
@@ -26,7 +24,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
-
+import kotlin.test.assertFailsWith
 
 class FlowTests {
 
@@ -56,23 +54,21 @@ class FlowTests {
 
     @Test
     fun `happy path`() {
-
-        // The issuer issues the AssetState to a
+        // The issuer issues the AssetState to party A
         val issueTx = issuer.runFlow(IssueAssetFlowInitiator("Gold", a.identity()))
         val assetId = issueTx.tx.outRefsOfType<AssetState>()[0].state.data.linearId
 
-        // a transfers the asset to b and then b transfers the asset back to a
+        // A transfers the asset to B and then B transfers the asset back to A
         val transfer1Tx = a.runFlow(TransferAssetFlowInitiator(assetId, b.identity()))
         val transfer2Tx = b.runFlow(TransferAssetFlowInitiator(assetId, a.identity()))
 
         val originalAssetState = transfer2Tx.tx.outRefsOfType<AssetState>()[0].state.data
         val assetStateId = originalAssetState.linearId
 
+        /** Step #1: Request Reissuance */
+        // The requester (A) sends a reissuance request to the issuer
         val stateRefToReissue = transfer2Tx.coreTransaction.outRefsOfType<AssetState>()[0].ref
         val assetIssuanceCommand = AssetContract.Commands.Create()
-
-        /** Step #1: Request Reissuance */
-        // The requester (a) sends a reissuance request to the issuer
         val requestReissuanceHash = a.runFlow(RequestReissuanceAndShareRequiredTransactions<AssetState>(issuer.identity(), listOf(stateRefToReissue), assetIssuanceCommand))
         val requestReissuanceTx = a.services.validatedTransactions.getTransaction(requestReissuanceHash)!!
 
@@ -86,12 +82,12 @@ class FlowTests {
         val reissuanceLockStateAndRef = reissuanceTx.tx.outRefsOfType<ReissuanceLock<AssetState>>()[0]
 
         /** Step #3: Exiting the Original State */
-        // The requester (a) exits the original state
+        // The requester (A) exits the original state
         val exitTx = a.runFlow(ExitAssetFlowInitiator(assetStateId))
         val exitTxHash = exitTx.tx.id
 
         /** Step #4: Unlock the Reissued State */
-        // The requester (a) unlocks the reissued states
+        // The requester (A) unlocks the reissued states
         // Both states now become unemcumbered and the ReIssuanceLock is set to inactive
         // The original state's exit transaction is added as an attachment to the unlock transaction
         val unlockTxHash = a.runFlow(UnlockReissuedStates(listOf(newAssetStateAndRef), reissuanceLockStateAndRef, listOf(exitTxHash), AssetContract.Commands.Transfer())) // TODO: Transfer
@@ -101,6 +97,52 @@ class FlowTests {
         assertEquals(originalAssetState, reissuedAssetState)
     }
 
+    @Test
+    fun `unhappy path`() {
+        // The issuer issues the AssetState to party a
+        val issueTx = issuer.runFlow(IssueAssetFlowInitiator("Gold", a.identity()))
+        val assetId = issueTx.tx.outRefsOfType<AssetState>()[0].state.data.linearId
+
+        // A transfers the asset to B and then B transfers the asset back to A
+        val transfer1Tx = a.runFlow(TransferAssetFlowInitiator(assetId, b.identity()))
+        val transfer2Tx = b.runFlow(TransferAssetFlowInitiator(assetId, a.identity()))
+
+        val originalAssetState = transfer2Tx.tx.outRefsOfType<AssetState>()[0].state.data
+        val assetStateId = originalAssetState.linearId
+
+        val stateRefToReissue = transfer2Tx.coreTransaction.outRefsOfType<AssetState>()[0].ref
+        val assetIssuanceCommand = AssetContract.Commands.Create()
+
+        /** Step #1: Request Reissuance */
+        // The requester (A) sends a reissuance request to the issuer
+        val requestReissuanceHash = a.runFlow(RequestReissuanceAndShareRequiredTransactions<AssetState>(issuer.identity(), listOf(stateRefToReissue), assetIssuanceCommand))
+        val requestReissuanceTx = a.services.validatedTransactions.getTransaction(requestReissuanceHash)!!
+
+        /** Step #2: Accepting Reissuance Request */
+        // The issuer accepts the reissuance request
+        // Two encumbered states are created, a reissued AssetState & an active ReIssuanceLock
+        val reissueanceRequestRef = requestReissuanceTx.tx.outRefsOfType<ReissuanceRequest>()[0]
+        val reissueanceTxHash = issuer.runFlow(ReissueStates<AssetState>(reissueanceRequestRef))
+        val reissuanceTx = issuer.services.validatedTransactions.getTransaction(reissueanceTxHash)!!
+        val newAssetStateAndRef = reissuanceTx.tx.outRefsOfType<AssetState>()[0]
+        val reissuanceLockStateAndRef = reissuanceTx.tx.outRefsOfType<ReissuanceLock<AssetState>>()[0]
+
+        /** Step #3: Consuming the Original State */
+        // The requester (A) consumes the original states instead of exiting
+        val exitTx = a.runFlow(TransferAssetFlowInitiator(assetId, b.identity()))
+        val exitTxHash = exitTx.tx.id
+
+        /** Step #4: (Attempt) to Unlock the Reissued State */
+        // The requester (A) can attempt to unlock the reissued states but this will fail with a TransactionVerificationException
+        // This occurs because the original state was consumed instead of exited
+        assertFailsWith<TransactionVerificationException> {
+            a.runFlow(UnlockReissuedStates(listOf(newAssetStateAndRef), reissuanceLockStateAndRef, listOf(exitTxHash), AssetContract.Commands.Transfer()))
+        }
+
+        /** Step #5: Exit the reissued states */
+        // At this point the requester (A) has no choice but to exit the reissued states if it wants to reattempt the reissuance
+        a.runFlow(DeleteReissuedStatesAndLock(reissuanceLockStateAndRef, listOf(newAssetStateAndRef), AssetContract.Commands.Exit()))
+    }
 
     fun StartedMockNode.identity(): Party {
         return this.info.legalIdentities[0]
@@ -115,6 +157,5 @@ class FlowTests {
         mockNetwork.runNetwork()
         return future.getOrThrow()
     }
-
 
 }
