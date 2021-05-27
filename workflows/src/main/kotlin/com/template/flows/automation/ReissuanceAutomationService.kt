@@ -27,7 +27,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
 
     private companion object {
         val executor: Executor = Executors.newFixedThreadPool(8)!!
-        val MAX_BACKCHAIN_LENGTH = 3
+        const val MAX_BACKCHAIN_LENGTH = 3 // TODO: Make configurable by CorDapp config file
     }
 
     init { serviceHub.register { processEvent(it) } }
@@ -81,7 +81,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
             update.produced.forEach { reissuanceRequestStateAndRef: StateAndRef<ReissuanceRequest> ->
                 val reissuanceRequestState = reissuanceRequestStateAndRef.state.data
 
-                if (serviceHub.myInfo.isLegalIdentity(reissuanceRequestState.issuer.nameOrNull()!!)) { // TODO: Fix
+                if (serviceHub.myInfo.isLegalIdentity(reissuanceRequestState.issuer.nameOrNull()!!)) { // TODO: Specify Issuer by CorDapp config file
                     println(serviceHub.myInfo.legalIdentities[0].name.toString() + " found a ReissuanceRequest with requester " + reissuanceRequestState.requester)
                     executor.execute {
                         val flowHandle = serviceHub.startFlow(ReissueStatesWrapper<AssetState>(reissuanceRequestStateAndRef))
@@ -96,7 +96,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
         serviceHub.vaultService.trackBy<ReissuanceLock<AssetState>>().updates.subscribe { update: Vault.Update<ReissuanceLock<AssetState>> ->
             update.produced.forEach { reissuanceLockStateAndRef: StateAndRef<ReissuanceLock<AssetState>> ->
                 val reissuanceLock = reissuanceLockStateAndRef.state.data
-                if (reissuanceLock.status == ReissuanceLock.ReissuanceLockStatus.ACTIVE && serviceHub.myInfo.isLegalIdentity(reissuanceLock.requester.nameOrNull()!!)) {
+                if (reissuanceLock.status == ReissuanceLock.ReissuanceLockStatus.ACTIVE && serviceHub.myInfo.isLegalIdentity(reissuanceLock.requester.nameOrNull()!!)) { // TODO: Specify Issuer by CorDapp config file
                     val newAssetStateAndRef = serviceHub.validatedTransactions.getTransaction(reissuanceLockStateAndRef.ref.txhash)!!.coreTransaction.outRefsOfType<AssetState>()[0]
                     executor.execute {
                         // First exit all relevant states
@@ -105,10 +105,12 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
                             val flowHandle = serviceHub.startFlow(ExitAssetFlowInitiator(stateAndRef.state.data.linearId))
                             val exitTx = flowHandle.returnValue.toCompletableFuture().getOrThrow()!!
                             exitHashList.add(exitTx.tx.id)
+                            println("Requester exited the old state!")
                         }
                         // Unlock the Reissued States
                         val flowHandle = serviceHub.startFlow(UnlockReissuedStatesWrapper(listOf(newAssetStateAndRef), reissuanceLockStateAndRef, exitHashList, AssetContract.Commands.Transfer()))
-                        val txHash = flowHandle.returnValue.toCompletableFuture().getOrThrow()!!
+                        flowHandle.returnValue.toCompletableFuture().getOrThrow()
+                        println("Requester reissued the new state!")
                     }
                 }
             }

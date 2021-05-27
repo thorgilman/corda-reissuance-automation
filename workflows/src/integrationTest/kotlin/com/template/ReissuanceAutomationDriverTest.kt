@@ -31,26 +31,9 @@ class ReissuanceAutomationDriverTest {
     private val issuerName = CordaX500Name("Issuer", "New York", "US")
     private val aName = CordaX500Name("PartyA", "New York", "US")
     private val bName = CordaX500Name("PartyB", "New York", "US")
-
     private lateinit var issuer: CordaRPCOps
     private lateinit var a: CordaRPCOps
     private lateinit var b: CordaRPCOps
-
-    /* For manual testing
-    flow start IssueAssetFlowInitiator assetType: "Gold", holderParty: "PartyA"
-    run vaultQuery contractStateType: com.template.states.AssetState
-
-    flow start TransferAssetFlowInitiator linearId: "02a61886-ecf3-4790-87eb-143e47a70b9a", newHolderParty: "PartyB"
-    flow start TransferAssetFlowInitiator linearId: "02a61886-ecf3-4790-87eb-143e47a70b9a", newHolderParty: "PartyA"
-    flow start TransferAssetFlowInitiator linearId: "02a61886-ecf3-4790-87eb-143e47a70b9a", newHolderParty: "PartyB"
-    flow start TransferAssetFlowInitiator linearId: "02a61886-ecf3-4790-87eb-143e47a70b9a", newHolderParty: "PartyA"
-
-    flow start CheckBackchainAndRequestReissuance id: "02a61886-ecf3-4790-87eb-143e47a70b9a"
-
-    run vaultQuery contractStateType: com.template.states.AssetState
-    run vaultQuery contractStateType: com.r3.corda.lib.reissuance.states.ReissuanceRequest
-    run vaultQuery contractStateType: com.r3.corda.lib.reissuance.states.ReissuanceLock
-     */
 
     @Test
     fun `request all backchain works as expected`() = withDriver {
@@ -73,7 +56,6 @@ class ReissuanceAutomationDriverTest {
         assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLocks[0].state.data.status)
         assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLocks[1].state.data.status)
     }
-
 
     @Test
     fun `requester exists state and reissues automatically`() = withDriver {
@@ -99,7 +81,6 @@ class ReissuanceAutomationDriverTest {
         assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLocks[0].state.data.status)
     }
 
-
     @Test
     fun `reissuance lock is created automatically`() = withDriver {
         issuer = setupNode(issuerName)
@@ -115,14 +96,10 @@ class ReissuanceAutomationDriverTest {
         val result = issuer.getStates<ReissuanceLock<AssetState>>()
         assertEquals(1, result.size)
         assertEquals(ReissuanceLock.ReissuanceLockStatus.ACTIVE, result[0].status)
-
     }
 
-
     fun setupAssetBackchain(length: Int): UniqueIdentifier {
-
         val issueTx = issuer.startFlow(::IssueAssetFlowInitiator, "Gold", a.identity()).returnValue.toCompletableFuture().getOrThrow()
-
         val assetId = issueTx.tx.outRefsOfType<AssetState>()[0].state.data.linearId
         for (i in 1..length) {
             if (i%2 == 1) a.startFlow(::TransferAssetFlowInitiator, assetId, b.identity()).returnValue.toCompletableFuture().getOrThrow()
@@ -144,8 +121,7 @@ class ReissuanceAutomationDriverTest {
         val user = User(username, "password", permissions = setOf("ALL"))
         val handle = startNode(providedName=x500Name, rpcUsers= listOf(user)).getOrThrow()
         val client = CordaRPCClient(handle.rpcAddress)
-        val proxy = client.start(username, "password").proxy
-        return proxy
+        return client.start(username, "password").proxy
     }
 
     // Runs a test inside the Driver DSL, which provides useful functions for starting nodes, etc.
