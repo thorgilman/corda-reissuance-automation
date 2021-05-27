@@ -12,9 +12,10 @@ import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 
-// *********
-// * Flows *
-// *********
+/**
+ * IssueAssetFlowInitiator is a basic flow to issue an AssetState.
+ */
+
 @InitiatingFlow
 @StartableByRPC
 class IssueAssetFlowInitiator(val assetType: String, val holderParty: Party) : FlowLogic<SignedTransaction>() {
@@ -22,14 +23,11 @@ class IssueAssetFlowInitiator(val assetType: String, val holderParty: Party) : F
 
     @Suspendable
     override fun call(): SignedTransaction {
-
         val notary = serviceHub.networkMapCache.notaryIdentities.first()
-
         val command = Command(AssetContract.Commands.Create(), listOf(ourIdentity, holderParty).map { it.owningKey })
         val dataState = AssetState(assetType, ourIdentity, holderParty)
         val stateAndContract = StateAndContract(dataState, AssetContract.ID)
         val txBuilder = TransactionBuilder(notary).withItems(stateAndContract, command)
-
         txBuilder.verify(serviceHub)
 
         val tx = serviceHub.signInitialTransaction(txBuilder)

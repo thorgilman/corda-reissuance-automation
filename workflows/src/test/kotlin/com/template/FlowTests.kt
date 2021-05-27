@@ -33,6 +33,9 @@ class FlowTests {
     lateinit var a: StartedMockNode
     lateinit var b: StartedMockNode
 
+    /** Basic unit testing for Reissuance CorDapp functionality (not automated)
+     *  See ReissueanceAutomationDriverTest for automation tests using DriverDSL */
+
     @Before
     fun setup() {
         mockNetwork = MockNetwork(MockNetworkParameters(cordappsForAllNodes = listOf(

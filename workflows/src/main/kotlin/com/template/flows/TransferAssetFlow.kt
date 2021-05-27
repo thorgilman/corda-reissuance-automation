@@ -4,7 +4,6 @@ import co.paralleluniverse.fibers.Suspendable
 import com.template.contracts.AssetContract
 import com.template.states.AssetState
 import net.corda.core.contracts.Command
-import net.corda.core.contracts.StateAndContract
 import net.corda.core.contracts.UniqueIdentifier
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
@@ -14,9 +13,10 @@ import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 
-// *********
-// * Flows *
-// *********
+/**
+ * TransferAssetFlowInitiator is a flow used to transfer an AssetState's ownership to a new party.
+ */
+
 @InitiatingFlow
 @StartableByRPC
 class TransferAssetFlowInitiator(val linearId: UniqueIdentifier, val newHolderParty: Party) : FlowLogic<SignedTransaction>() {
@@ -24,12 +24,9 @@ class TransferAssetFlowInitiator(val linearId: UniqueIdentifier, val newHolderPa
 
     @Suspendable
     override fun call(): SignedTransaction {
-
         val notary = serviceHub.networkMapCache.notaryIdentities.first()
-
         val stateRef = serviceHub.vaultService.queryBy(AssetState::class.java, QueryCriteria.LinearStateQueryCriteria(linearId = listOf(linearId))).states[0]
         val state = stateRef.state.data
-
         val newState = state.withNewOwner(newHolderParty)
 
         val command = Command(AssetContract.Commands.Transfer(), listOf(ourIdentity, newHolderParty).map { it.owningKey })
@@ -37,7 +34,6 @@ class TransferAssetFlowInitiator(val linearId: UniqueIdentifier, val newHolderPa
         txBuilder.addInputState(stateRef)
         txBuilder.addOutputState(newState)
         txBuilder.addCommand(command)
-
         txBuilder.verify(serviceHub)
 
         val tx = serviceHub.signInitialTransaction(txBuilder)
