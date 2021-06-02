@@ -1,5 +1,6 @@
 package com.template
 
+import com.r3.corda.lib.reissuance.flows.GetTransactionBackChain
 import com.r3.corda.lib.reissuance.states.ReissuanceLock
 import com.template.flows.IssueAssetFlowInitiator
 import com.template.flows.TransferAssetFlowInitiator
@@ -89,6 +90,10 @@ class ReissuanceAutomationDriverTest {
 
         val uniqueIdentifier = setupAssetBackchain(7)
         val stateAndRef = b.getStateByLinearId<AssetState>(uniqueIdentifier)
+
+        val oldBackchainTransactionList = b.startFlow(::GetTransactionBackChain, stateAndRef.ref.txhash).returnValue.toCompletableFuture().getOrThrow()!!
+        assertEquals(8, oldBackchainTransactionList.size)
+
         b.startFlow(::CheckBackchainAndRequestReissuance, uniqueIdentifier).returnValue.toCompletableFuture().getOrThrow()
 
         Thread.sleep(10000)
@@ -104,6 +109,9 @@ class ReissuanceAutomationDriverTest {
         assert(stateAndRef.state.data == assetStates[0].state.data)
 
         assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLocks[0].state.data.status)
+
+        val newBackchainTransactionList = b.startFlow(::GetTransactionBackChain, assetStates[0].ref.txhash).returnValue.toCompletableFuture().getOrThrow()!!
+        assertEquals(3, newBackchainTransactionList.size) // (RequestReissuance TX, ReissueStates TX, UnlockReissuedStates TX)
     }
 
     @Test
