@@ -145,6 +145,8 @@ class FlowTests {
         /** Step #5: Exit the reissued states */
         // At this point the requester (A) has no choice but to exit the reissued states if it wants to reattempt the reissuance
         a.runFlow(DeleteReissuedStatesAndLock(reissuanceLockStateAndRef, listOf(newAssetStateAndRef), AssetContract.Commands.Exit()))
+
+
     }
 
     fun StartedMockNode.identity(): Party {

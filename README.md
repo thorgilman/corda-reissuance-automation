@@ -29,6 +29,8 @@ The CorDapp can also be tested manually using the flows below.
         (We will compare this data to the new data after running the reissuance)
 
         flow start CheckBackchainAndRequestReissuance id: ""
+        or ...
+        flow start CheckAllBackchainsAndReissue
         (Wait a few seconds)
 
         run vaultQuery contractStateType: com.template.states.AssetState

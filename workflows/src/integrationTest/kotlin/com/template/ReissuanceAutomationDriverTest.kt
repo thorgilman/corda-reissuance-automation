@@ -36,6 +36,30 @@ class ReissuanceAutomationDriverTest {
     private lateinit var b: CordaRPCOps
 
     @Test
+    fun `request all backchain works as expected (many)`() = withDriver {
+        issuer = setupNode(issuerName)
+        a = setupNode(aName)
+        b = setupNode(bName)
+
+        val numOfAssets = 8 // TODO: Out of Memory error at 8
+        for (i in 1..numOfAssets) {
+            setupAssetBackchain(7)
+        }
+        b.startFlow(::CheckAllBackchainsAndReissue).returnValue.toCompletableFuture().getOrThrow()
+
+        Thread.sleep(25000)
+
+        val assetStates = b.getStateAndRefs<AssetState>()
+        val reissuanceLocks = b.getStateAndRefs<ReissuanceLock<AssetState>>()
+
+        assertEquals(numOfAssets, assetStates.size)
+        assertEquals(numOfAssets, reissuanceLocks.size)
+        for (reissuanceLock in reissuanceLocks) {
+            assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLock.state.data.status)
+        }
+    }
+
+    @Test
     fun `request all backchain works as expected`() = withDriver {
         issuer = setupNode(issuerName)
         a = setupNode(aName)
@@ -76,7 +100,8 @@ class ReissuanceAutomationDriverTest {
         assertEquals(1, reissuanceLocks.size)
 
         assertEquals(uniqueIdentifier.id, assetStates[0].state.data.linearId.id)
-        assert(!stateAndRef.equals(assetStates[0]))
+        assert(stateAndRef != assetStates[0])
+        assert(stateAndRef.state.data == assetStates[0].state.data)
 
         assertEquals(ReissuanceLock.ReissuanceLockStatus.INACTIVE, reissuanceLocks[0].state.data.status)
     }
