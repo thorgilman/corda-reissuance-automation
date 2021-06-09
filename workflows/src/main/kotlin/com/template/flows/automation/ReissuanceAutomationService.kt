@@ -9,10 +9,13 @@ import com.template.flows.wrappers.ReissueStatesWrapper
 import com.template.flows.wrappers.RequestReissuanceAndShareRequiredTransactionsWrapper
 import com.template.flows.wrappers.UnlockReissuedStatesWrapper
 import com.template.states.AssetState
+import net.corda.core.contracts.ContractState
+import net.corda.core.contracts.LinearState
 import net.corda.core.contracts.StateAndRef
 import net.corda.core.crypto.SecureHash
 import net.corda.core.node.AppServiceHub
 import net.corda.core.node.services.*
+import net.corda.core.node.services.vault.QueryCriteria
 import net.corda.core.serialization.SingletonSerializeAsToken
 import net.corda.core.utilities.getOrThrow
 import java.util.concurrent.Executor
@@ -22,12 +25,29 @@ import java.util.concurrent.Executors
  * ReissuanceAutomationService is a @CordaService used to automate the functionality of the Reissuance CorDapp
 */
 
+// TODO: Need to provide the following { StateClassName, ExitCommand, ExitFlow, UpdateCommand }
+// The requester will always provide this
+// What about multiple types of States?
+
+// When state_machine_started get the values from the config
+// Set the class as a generic type for the CordaService?
+
+// Or no config, we set this manually using a flow
+
+
 @CordaService
 class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : SingletonSerializeAsToken() {
+
+    val T = AssetState::class.java
+
 
     private companion object {
         val executor: Executor = Executors.newFixedThreadPool(8)!!
         const val MAX_BACKCHAIN_LENGTH = 3 // TODO: Make configurable by CorDapp config file
+
+        val STATE_CLASS_NAME = AssetState::class.java
+        val EXIT_COMMAND = AssetContract.Commands.Exit()
+        val UPDATE_COMMAND = AssetContract.Commands.Transfer()
     }
 
     init { serviceHub.register { processEvent(it) } }
@@ -35,13 +55,14 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
     private fun processEvent(event: ServiceLifecycleEvent) {
         when (event) {
             ServiceLifecycleEvent.STATE_MACHINE_STARTED -> {
+                // TODO: Get data from config?
                 startTrackingStates()
             }
         }
     }
 
     @Suspendable
-    fun countBackchain(stateAndRef: StateAndRef<AssetState>): Int {
+    fun <T> countBackchain(stateAndRef: StateAndRef<Companion.STATE_CLASS_NAME.javaClass>): Int {
         var count = 0
         var tx = serviceHub.validatedTransactions.getTransaction(stateAndRef.ref.txhash)!!
         while (tx.inputs.isNotEmpty()) {
@@ -57,6 +78,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
         for (stateAndRef in allStates) {
             checkBackchainAndReissue(stateAndRef)
         }
+        QueryCriteria.VaultCustomQueryCriteria(status=Vault.StateStatus.UNCONSUMED)
     }
 
     @Suspendable
@@ -73,7 +95,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
     }
 
     @Suspendable
-    fun startTrackingStates() {
+    fun startTrackingStates(classType: Class<T>) {
         println("Starting to track states...")
 
         // Track new ReissuanceRequests (Issuer)
