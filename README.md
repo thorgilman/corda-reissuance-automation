@@ -16,19 +16,19 @@ The CorDapp can also be tested manually using the flows below.
         (Get AssetState LinearId for next step)
 
     PartyA:
-        flow start TransferAssetFlowInitiator linearId: "", newHolderParty: "PartyB"
+        flow start TransferAssetFlowInitiator linearId: "ec086d75-f894-433c-936e-f8ebcdc9dfdf", newHolderParty: "PartyB"
     PartyB:
-        flow start TransferAssetFlowInitiator linearId: "", newHolderParty: "PartyA"
+        flow start TransferAssetFlowInitiator linearId: "ec086d75-f894-433c-936e-f8ebcdc9dfdf", newHolderParty: "PartyA"
     PartyA:
-        flow start TransferAssetFlowInitiator linearId: "", newHolderParty: "PartyB"
+        flow start TransferAssetFlowInitiator linearId: "ec086d75-f894-433c-936e-f8ebcdc9dfdf", newHolderParty: "PartyB"
     PartyB:
-        flow start TransferAssetFlowInitiator linearId: "", newHolderParty: "PartyA"
+        flow start TransferAssetFlowInitiator linearId: "ec086d75-f894-433c-936e-f8ebcdc9dfdf", newHolderParty: "PartyA"
 
     PartyA:
         run vaultQuery contractStateType: com.template.states.AssetState
         (We will compare this data to the new data after running the reissuance)
 
-        flow start CheckBackchainAndRequestReissuance id: ""
+        flow start CheckBackchainAndRequestReissuance id: "ec086d75-f894-433c-936e-f8ebcdc9dfdf"
         or ...
         flow start CheckAllBackchainsAndReissue
         (Wait a few seconds)

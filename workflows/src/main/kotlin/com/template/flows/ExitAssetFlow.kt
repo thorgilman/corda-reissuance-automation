@@ -35,6 +35,7 @@ class ExitAssetFlowInitiator(val linearId: UniqueIdentifier) : FlowLogic<SignedT
 
         val tx = serviceHub.signInitialTransaction(txBuilder)
         val targetSession = initiateFlow(state.issuer)
+
         val stx = subFlow(CollectSignaturesFlow(tx, listOf(targetSession)))
         return subFlow(FinalityFlow(stx, targetSession))
     }

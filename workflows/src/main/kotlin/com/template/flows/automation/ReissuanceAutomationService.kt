@@ -38,16 +38,13 @@ import java.util.concurrent.Executors
 @CordaService
 class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : SingletonSerializeAsToken() {
 
-    val T = AssetState::class.java
-
-
     private companion object {
         val executor: Executor = Executors.newFixedThreadPool(8)!!
         const val MAX_BACKCHAIN_LENGTH = 3 // TODO: Make configurable by CorDapp config file
 
-        val STATE_CLASS_NAME = AssetState::class.java
-        val EXIT_COMMAND = AssetContract.Commands.Exit()
-        val UPDATE_COMMAND = AssetContract.Commands.Transfer()
+//        val STATE_CLASS_NAME = AssetState::class.java
+//        val EXIT_COMMAND = AssetContract.Commands.Exit()
+//        val UPDATE_COMMAND = AssetContract.Commands.Transfer()
     }
 
     init { serviceHub.register { processEvent(it) } }
@@ -56,13 +53,13 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
         when (event) {
             ServiceLifecycleEvent.STATE_MACHINE_STARTED -> {
                 // TODO: Get data from config?
-                startTrackingStates()
+                startTrackingStates<AssetState>()
             }
         }
     }
 
     @Suspendable
-    fun <T> countBackchain(stateAndRef: StateAndRef<Companion.STATE_CLASS_NAME.javaClass>): Int {
+    fun countBackchain(stateAndRef: StateAndRef<ContractState>): Int {
         var count = 0
         var tx = serviceHub.validatedTransactions.getTransaction(stateAndRef.ref.txhash)!!
         while (tx.inputs.isNotEmpty()) {
@@ -78,7 +75,6 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
         for (stateAndRef in allStates) {
             checkBackchainAndReissue(stateAndRef)
         }
-        QueryCriteria.VaultCustomQueryCriteria(status=Vault.StateStatus.UNCONSUMED)
     }
 
     @Suspendable
@@ -95,7 +91,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
     }
 
     @Suspendable
-    fun startTrackingStates(classType: Class<T>) {
+    fun <T: LinearState> startTrackingStates() {
         println("Starting to track states...")
 
         // Track new ReissuanceRequests (Issuer)
@@ -106,7 +102,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
                 if (serviceHub.myInfo.isLegalIdentity(reissuanceRequestState.issuer.nameOrNull()!!)) { // TODO: Specify Issuer by CorDapp config file
                     println(serviceHub.myInfo.legalIdentities[0].name.toString() + " found a ReissuanceRequest with requester " + reissuanceRequestState.requester)
                     executor.execute {
-                        val flowHandle = serviceHub.startFlow(ReissueStatesWrapper<AssetState>(reissuanceRequestStateAndRef))
+                        val flowHandle = serviceHub.startFlow(ReissueStatesWrapper<T>(reissuanceRequestStateAndRef))
                         flowHandle.returnValue.toCompletableFuture().getOrThrow()
                     }
                     println("Issuer ran ReissueStates!")
@@ -115,11 +111,14 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
         }
 
         // Track new ReissuanceLocks (Requester)
-        serviceHub.vaultService.trackBy<ReissuanceLock<AssetState>>().updates.subscribe { update: Vault.Update<ReissuanceLock<AssetState>> ->
-            update.produced.forEach { reissuanceLockStateAndRef: StateAndRef<ReissuanceLock<AssetState>> ->
+        serviceHub.vaultService.trackBy<ReissuanceLock<T>>().updates.subscribe { update: Vault.Update<ReissuanceLock<T>> ->
+            update.produced.forEach { reissuanceLockStateAndRef: StateAndRef<ReissuanceLock<T>> ->
                 val reissuanceLock = reissuanceLockStateAndRef.state.data
                 if (reissuanceLock.status == ReissuanceLock.ReissuanceLockStatus.ACTIVE && serviceHub.myInfo.isLegalIdentity(reissuanceLock.requester.nameOrNull()!!)) { // TODO: Specify Issuer by CorDapp config file
-                    val newAssetStateAndRef = serviceHub.validatedTransactions.getTransaction(reissuanceLockStateAndRef.ref.txhash)!!.coreTransaction.outRefsOfType<AssetState>()[0]
+                    val stateAndRefList = serviceHub.validatedTransactions.getTransaction(reissuanceLockStateAndRef.ref.txhash)!!.coreTransaction.outRefsOfType<ContractState>()
+                    val outputList = stateAndRefList.filter { it != reissuanceLockStateAndRef }
+
+                    val newStateAndRef = outputList.single() as StateAndRef<T> // TODO: Is this ok?
                     executor.execute {
                         // First exit all relevant states
                         val exitHashList = mutableListOf<SecureHash>()
@@ -130,7 +129,7 @@ class ReissuanceAutomationService(private val serviceHub: AppServiceHub) : Singl
                             println("Requester exited the old state!")
                         }
                         // Unlock the Reissued States
-                        val flowHandle = serviceHub.startFlow(UnlockReissuedStatesWrapper(listOf(newAssetStateAndRef), reissuanceLockStateAndRef, exitHashList, AssetContract.Commands.Transfer()))
+                        val flowHandle = serviceHub.startFlow(UnlockReissuedStatesWrapper(listOf(newStateAndRef), reissuanceLockStateAndRef, exitHashList, AssetContract.Commands.Transfer()))
                         flowHandle.returnValue.toCompletableFuture().getOrThrow()
                         println("Requester reissued the new state!")
                     }
